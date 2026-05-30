@@ -195,7 +195,27 @@ textarea{resize:vertical;min-height:90px;line-height:1.6;}
       <div class="setup-hint">空欄の場合はGoogleドライブのマイドライブ直下に保存されます</div>
     </div>
 
-    <div class="submit-area" style="margin-top:24px;">
+    <!-- 免責事項 -->
+    <div style="background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:16px;margin-top:24px;">
+      <div style="font-size:12px;font-weight:700;color:var(--text-dim);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:10px;">免責事項・利用規約</div>
+      <div style="font-size:12px;color:var(--text-muted);line-height:1.8;">
+        1. 本アプリは飛行記録の管理を補助するツールです。航空法上の義務を保証するものではありません。<br>
+        2. 本アプリの使用による損害・不利益について、開発者は一切の責任を負いません。<br>
+        3. 飛行記録の正確性・完全性については利用者自身が責任を負うものとします。<br>
+        4. 本アプリの利用にはGoogleアカウントが必要です。データはGoogleドライブに保存されます。<br>
+        5. 本アプリは予告なく変更・終了する場合があります。
+      </div>
+    </div>
+
+    <!-- 同意チェックボックス -->
+    <div style="margin-top:16px;">
+      <label style="display:flex;align-items:flex-start;gap:10px;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;color:var(--text);margin:0;line-height:1.6;">
+        <input type="checkbox" id="agree-check" style="width:18px;height:18px;margin-top:2px;flex-shrink:0;accent-color:var(--accent);">
+        上記の免責事項・利用規約に同意します
+      </label>
+    </div>
+
+    <div class="submit-area" style="margin-top:20px;">
       <button class="btn btn-primary" id="setup-start-btn" onclick="runInitialSetup()">設定してはじめる →</button>
     </div>
   </div>
@@ -462,6 +482,10 @@ async function runInitialSetup() {
   const registration = document.getElementById('setup-registration').value.trim();
   const url = document.getElementById('setup-url').value.trim();
   const folder = document.getElementById('setup-folder').value.trim();
+
+  if (!document.getElementById('agree-check').checked) {
+    showToast('免責事項・利用規約に同意してください', true); return;
+  }
 
   if (!pilot || !aircraft || !registration || !url) {
     showToast('すべての必須項目を入力してください', true); return;
