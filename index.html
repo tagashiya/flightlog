@@ -1,201 +1,773 @@
-// ============================================================
-// FlightLog - Google Apps Script
-// ============================================================
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>飛行記録 | FlightLog</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Share+Tech+Mono&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;--border:#1e3a5f;
+  --border-glow:#2563eb;--accent:#3b82f6;--accent2:#06b6d4;--accent3:#10b981;
+  --danger:#ef4444;--warn:#f59e0b;--text:#e2e8f0;--text-muted:#64748b;
+  --text-dim:#94a3b8;--glow:rgba(59,130,246,0.15);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans JP',sans-serif;font-weight:300;min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(37,99,235,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(37,99,235,0.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+body::after{content:'';position:fixed;top:-200px;left:50%;transform:translateX(-50%);width:800px;height:400px;background:radial-gradient(ellipse,rgba(59,130,246,0.08) 0%,transparent 70%);pointer-events:none;z-index:0;}
 
-const SHEET_NAME = '飛行記録';
-const HEADERS = [
-  'ID','飛行年月日','離陸時刻','操縦者氏名','機体','登録記号',
-  '飛行概要','離陸場所','着陸場所','飛行時間(分)','安全影響事項','詳細','安全影響なし','保存日時'
-];
+.nav-tabs{position:sticky;top:0;z-index:50;background:rgba(10,14,26,0.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;padding:0 16px;}
+.nav-tab{flex:1;max-width:200px;padding:14px 8px;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);cursor:pointer;border-bottom:2px solid transparent;text-align:center;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:6px;user-select:none;}
+.nav-tab:hover{color:var(--text-dim);}.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.nav-count{background:var(--accent);color:white;font-size:10px;padding:1px 6px;border-radius:100px;font-family:'Share Tech Mono',monospace;}
 
-function doGet(e) {
-  const action = e.parameter.action || '';
-  let result;
-  try {
-    switch (action) {
-      case 'setup':  result = setupSpreadsheet(e.parameter.folderName || ''); break;
-      case 'getAll': result = getAllLogs(); break;
-      default:       result = { success: true, message: 'FlightLog API is running' };
-    }
-  } catch(err) {
-    result = { success: false, message: err.message };
-  }
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
+.page{display:none;}.page.active{display:block;}
+.container{position:relative;z-index:1;max-width:800px;margin:0 auto;padding:24px 16px 80px;}
+
+.header{display:flex;flex-direction:column;gap:6px;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border);}
+.header-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.logo{font-family:'Orbitron',sans-serif;font-size:13px;font-weight:700;letter-spacing:0.15em;color:var(--accent);text-transform:uppercase;display:flex;align-items:center;gap:8px;}
+.logo-dot{width:6px;height:6px;background:var(--accent3);border-radius:50%;animation:blink 2s ease-in-out infinite;box-shadow:0 0 8px var(--accent3);}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:0.3;}}
+.aircraft-badge{font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text-muted);background:var(--surface2);border:1px solid var(--border);padding:4px 10px;border-radius:4px;letter-spacing:0.05em;}
+.page-title{font-size:clamp(20px,5vw,28px);font-weight:700;letter-spacing:-0.02em;color:var(--text);line-height:1.2;}
+.page-title span{color:var(--accent);}
+.page-subtitle{font-size:12px;color:var(--text-muted);letter-spacing:0.05em;font-family:'Share Tech Mono',monospace;}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px 24px;margin-bottom:16px;position:relative;overflow:hidden;transition:border-color 0.2s;}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:0;transition:opacity 0.3s;}
+.card:focus-within::before{opacity:1;}.card:focus-within{border-color:var(--border-glow);}
+.card-header{display:flex;align-items:center;gap:10px;margin-bottom:20px;}
+.card-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.icon-blue{background:rgba(59,130,246,0.15);}.icon-cyan{background:rgba(6,182,212,0.15);}.icon-green{background:rgba(16,185,129,0.15);}.icon-yellow{background:rgba(245,158,11,0.15);}.icon-red{background:rgba(239,68,68,0.15);}
+.card-title{font-size:13px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-dim);}
+.card-number{margin-left:auto;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--border-glow);opacity:0.6;}
+
+.field{margin-bottom:18px;}.field:last-child{margin-bottom:0;}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:500px){.field-row{grid-template-columns:1fr;}.card{padding:20px 16px;}}
+label{display:block;font-size:11px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-muted);margin-bottom:7px;}
+label .required{color:var(--accent2);margin-left:3px;}
+label .auto-tag{background:rgba(16,185,129,0.15);color:var(--accent3);font-size:9px;padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:0.05em;}
+input[type="text"],input[type="date"],input[type="time"],input[type="number"],textarea,select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'Noto Sans JP',sans-serif;font-size:14px;font-weight:300;transition:all 0.2s;outline:none;-webkit-appearance:none;}
+input[type="date"],input[type="time"]{font-family:'Share Tech Mono',monospace;font-size:14px;color-scheme:dark;}
+input:focus,textarea:focus,select:focus{border-color:var(--accent);background:rgba(59,130,246,0.04);box-shadow:0 0 0 3px rgba(59,130,246,0.12);}
+textarea{resize:vertical;min-height:90px;line-height:1.6;}
+
+.pilot-info{background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.2);border-radius:8px;padding:12px 14px;display:flex;align-items:center;gap:10px;}
+.pilot-avatar{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;}
+.pilot-name{font-size:15px;font-weight:500;color:var(--text);}
+.pilot-license{font-size:11px;color:var(--text-muted);font-family:'Share Tech Mono',monospace;margin-top:1px;}
+
+.safety-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+@media(max-width:500px){.safety-grid{grid-template-columns:1fr;}}
+.check-item{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:pointer;transition:all 0.18s;user-select:none;}
+.check-item:hover{border-color:var(--accent);background:var(--glow);}
+.check-item.checked{border-color:var(--danger);background:rgba(239,68,68,0.06);}
+.check-item.checked .check-box{background:var(--danger);border-color:var(--danger);}
+.check-item.checked .check-box::after{opacity:1;}
+.check-box{width:18px;height:18px;border:1.5px solid var(--border);border-radius:4px;flex-shrink:0;position:relative;transition:all 0.15s;}
+.check-box::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:700;opacity:0;transition:opacity 0.15s;}
+.check-label{font-size:12px;color:var(--text-muted);line-height:1.3;}
+.safety-note{display:none;margin-top:12px;}.safety-note.visible{display:block;}
+.safety-note label{color:var(--danger);}
+
+.time-calc{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;margin-top:10px;}
+.time-calc-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;}
+.time-calc-value{font-family:'Share Tech Mono',monospace;font-size:22px;color:var(--accent2);letter-spacing:0.05em;}
+.time-calc-unit{font-size:11px;color:var(--text-muted);margin-left:4px;}
+
+.submit-area{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;}
+.btn{flex:1;min-width:120px;padding:15px 24px;border-radius:10px;border:none;font-family:'Noto Sans JP',sans-serif;font-size:14px;font-weight:700;letter-spacing:0.05em;cursor:pointer;transition:all 0.2s;}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent2));color:white;box-shadow:0 4px 20px rgba(59,130,246,0.3);}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(59,130,246,0.45);}
+.btn-primary:active{transform:translateY(0);}
+.btn-primary:disabled{opacity:0.5;transform:none;cursor:not-allowed;}
+.btn-secondary{background:transparent;color:var(--text-muted);border:1px solid var(--border);}
+.btn-secondary:hover{border-color:var(--text-muted);color:var(--text);}
+.btn-danger{background:transparent;color:var(--danger);border:1px solid rgba(239,68,68,0.3);padding:8px 14px;font-size:12px;border-radius:6px;min-width:unset;flex:unset;}
+.btn-danger:hover{background:rgba(239,68,68,0.08);border-color:var(--danger);}
+.btn-sm{padding:8px 14px;font-size:12px;border-radius:6px;min-width:unset;flex:unset;}
+
+.status-bar{display:flex;align-items:center;gap:8px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--text-muted);padding:12px 0 0;border-top:1px solid var(--border);margin-top:8px;flex-wrap:wrap;}
+.status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.status-dot.green{background:var(--accent3);box-shadow:0 0 6px var(--accent3);animation:blink 2s infinite;}
+.status-dot.yellow{background:var(--warn);box-shadow:0 0 6px var(--warn);}
+.status-link{color:var(--accent2);text-decoration:underline;cursor:pointer;font-size:11px;}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--accent3);color:white;padding:12px 24px;border-radius:100px;font-size:13px;font-weight:500;z-index:1000;transition:transform 0.4s cubic-bezier(0.34,1.56,0.64,1);white-space:nowrap;box-shadow:0 8px 32px rgba(16,185,129,0.4);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+.toast.error{background:var(--danger);}
+
+@keyframes scanline{0%{transform:translateY(-100%);}100%{transform:translateY(100vh);}}
+.scanline{position:fixed;top:0;left:0;right:0;height:2px;background:linear-gradient(transparent,rgba(59,130,246,0.08),transparent);animation:scanline 8s linear infinite;pointer-events:none;z-index:100;}
+
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;}
+@media(max-width:480px){.stats-row{grid-template-columns:1fr 1fr;}}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;}
+.stat-value{font-family:'Share Tech Mono',monospace;font-size:24px;color:var(--accent2);line-height:1;}
+.stat-label{font-size:10px;color:var(--text-muted);letter-spacing:0.08em;text-transform:uppercase;margin-top:4px;}
+.list-controls{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+.search-box{flex:1;min-width:160px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 14px;color:var(--text);font-family:'Noto Sans JP',sans-serif;font-size:13px;outline:none;transition:border-color 0.2s;}
+.search-box:focus{border-color:var(--accent);}
+.search-box::placeholder{color:var(--text-muted);}
+.action-bar{display:flex;gap:10px;justify-content:flex-end;margin-bottom:16px;flex-wrap:wrap;}
+.log-list{display:flex;flex-direction:column;gap:10px;}
+.log-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;cursor:pointer;transition:all 0.18s;position:relative;overflow:hidden;}
+.log-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);opacity:0;transition:opacity 0.2s;}
+.log-item:hover{border-color:var(--border-glow);transform:translateY(-1px);}
+.log-item:hover::before{opacity:1;}
+.log-item.has-issue::before{background:var(--danger);opacity:1;}
+.log-item.has-issue{border-color:rgba(239,68,68,0.25);}
+.log-item-top{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+.log-date{font-family:'Share Tech Mono',monospace;font-size:13px;color:var(--accent2);}
+.log-time{font-family:'Share Tech Mono',monospace;font-size:12px;color:var(--text-muted);}
+.log-duration{font-family:'Share Tech Mono',monospace;font-size:12px;background:rgba(59,130,246,0.1);color:var(--accent);padding:2px 8px;border-radius:4px;margin-left:auto;}
+.log-overview{font-size:13px;color:var(--text);margin-bottom:6px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.log-location{font-size:11px;color:var(--text-muted);}
+.log-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.tag{font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500;}
+.tag-issue{background:rgba(239,68,68,0.12);color:var(--danger);border:1px solid rgba(239,68,68,0.2);}
+.tag-ok{background:rgba(16,185,129,0.1);color:var(--accent3);border:1px solid rgba(16,185,129,0.2);}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-muted);}
+.empty-icon{font-size:48px;margin-bottom:16px;opacity:0.4;}
+.empty-text{font-size:14px;margin-bottom:8px;color:var(--text-dim);}
+.empty-sub{font-size:12px;}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:200;display:none;align-items:center;justify-content:center;padding:16px;}
+.modal-overlay.show{display:flex;}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;}
+.modal-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1;}
+.modal-title{font-size:15px;font-weight:700;}
+.modal-close{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all 0.15s;}
+.modal-close:hover{border-color:var(--text);color:var(--text);}
+.modal-body{padding:20px 24px;}
+.modal-row{display:flex;gap:8px;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+.modal-row:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none;}
+.modal-key{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;min-width:100px;padding-top:2px;flex-shrink:0;}
+.modal-val{font-size:13px;color:var(--text);line-height:1.5;flex:1;}
+.modal-actions{padding:16px 24px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;}
+
+.loading{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px;vertical-align:middle;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* 初回設定画面 */
+.setup-overlay{position:fixed;inset:0;background:var(--bg);z-index:300;display:flex;align-items:flex-start;justify-content:center;padding:24px;overflow-y:auto;}
+.setup-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:480px;padding:36px 28px;}
+.setup-box-title{font-size:20px;font-weight:700;margin-bottom:8px;}
+.setup-box-title span{color:var(--accent);}
+.setup-box-desc{font-size:13px;color:var(--text-muted);line-height:1.7;margin-bottom:28px;}
+.setup-hint{font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<!-- 初回設定オーバーレイ -->
+<div class="setup-overlay" id="setup-overlay">
+  <div class="setup-box">
+    <div style="font-family:'Orbitron',sans-serif;font-size:12px;color:var(--accent);letter-spacing:0.15em;margin-bottom:16px;">✈ FLIGHTLOG</div>
+    <div class="setup-box-title">初回<span>設定</span></div>
+    <div class="setup-box-desc">使用を開始する前に、あなたの情報とGoogleスプレッドシートの連携設定を行ってください。</div>
+
+    <div class="field">
+      <label>操縦者氏名<span class="required">*</span></label>
+      <input type="text" id="setup-pilot" placeholder="例：田頭 達也">
+    </div>
+    <div class="field">
+      <label>機体名<span class="required">*</span></label>
+      <input type="text" id="setup-aircraft" placeholder="例：DJI Mini 5 Pro">
+    </div>
+    <div class="field">
+      <label>登録記号<span class="required">*</span></label>
+      <input type="text" id="setup-registration" placeholder="例：JU326336B7C6" style="font-family:'Share Tech Mono',monospace;">
+    </div>
+    <div class="field">
+      <label>Apps Script URL<span class="required">*</span></label>
+      <input type="text" id="setup-url" placeholder="https://script.google.com/macros/s/..." style="font-family:'Share Tech Mono',monospace;font-size:12px;">
+      <div class="setup-hint">Google Apps Scriptをデプロイして発行されたURLを入力してください</div>
+    </div>
+    <div class="field">
+      <label>保存先フォルダ名（任意）</label>
+      <input type="text" id="setup-folder" placeholder="例：002_tagashiya/飛行記録（パス形式で入力可）">
+      <div class="setup-hint">空欄の場合はGoogleドライブのマイドライブ直下に保存されます</div>
+    </div>
+
+    <div class="submit-area" style="margin-top:24px;">
+      <button class="btn btn-primary" id="setup-start-btn" onclick="runInitialSetup()">設定してはじめる →</button>
+    </div>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="nav-tabs">
+  <div class="nav-tab active" id="tab-input" onclick="switchTab('input')">✏️ 入力</div>
+  <div class="nav-tab" id="tab-list" onclick="switchTab('list')">📋 記録一覧 <span class="nav-count" id="nav-count">0</span></div>
+  <div class="nav-tab" id="tab-settings" onclick="switchTab('settings')">⚙️ 設定</div>
+</div>
+
+<!-- 入力ページ -->
+<div class="page active" id="page-input">
+<div class="container">
+  <div class="header">
+    <div class="header-top">
+      <div class="logo"><div class="logo-dot"></div>FlightLog</div>
+      <div class="aircraft-badge" id="header-registration">-</div>
+    </div>
+    <h1 class="page-title">飛行記録<span>入力</span></h1>
+    <p class="page-subtitle" id="header-subtitle">-</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-blue">📋</div><span class="card-title">基本情報</span><span class="card-number">01</span></div>
+    <div class="field-row">
+      <div class="field">
+        <label>飛行年月日<span class="required">*</span><span class="auto-tag">AUTO</span></label>
+        <input type="date" id="flightDate" required>
+      </div>
+      <div class="field">
+        <label>離陸時刻<span class="required">*</span><span class="auto-tag">AUTO</span></label>
+        <input type="time" id="takeoffTime" required>
+      </div>
+    </div>
+    <div class="field">
+      <label>操縦者氏名</label>
+      <div class="pilot-info">
+        <div class="pilot-avatar" id="pilot-avatar">-</div>
+        <div>
+          <div class="pilot-name" id="pilot-name-display">-</div>
+          <div class="pilot-license" id="pilot-license-display">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-cyan">🛸</div><span class="card-title">飛行概要</span><span class="card-number">02</span></div>
+    <div class="field">
+      <label>飛行概要<span class="required">*</span></label>
+      <textarea id="flightOverview" placeholder="例：空撮・点検・測量・練習飛行 など"></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-green">📍</div><span class="card-title">離着陸場所</span><span class="card-number">03</span></div>
+    <div class="field">
+      <label>離陸場所<span class="required">*</span></label>
+      <input type="text" id="takeoffLocation" placeholder="例：福岡県福岡市中央区〇〇公園">
+    </div>
+    <div class="field">
+      <label>着陸場所</label>
+      <label style="display:flex;align-items:center;gap:6px;text-transform:none;letter-spacing:0;font-size:12px;cursor:pointer;color:var(--text-muted);margin-bottom:8px;">
+        <input type="checkbox" id="sameLanding" onchange="toggleLanding(this)" style="width:auto;background:none;border:none;padding:0;margin:0;accent-color:var(--accent);">離陸場所と同じ
+      </label>
+      <input type="text" id="landingLocation" placeholder="例：同上、または別の着陸地点">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-yellow">⏱</div><span class="card-title">飛行時間</span><span class="card-number">04</span></div>
+    <div class="field">
+      <label>飛行時間（分）<span class="required">*</span></label>
+      <input type="number" id="flightMinutes" min="0" max="999" placeholder="0" oninput="updateTimeDisplay()">
+    </div>
+    <div class="time-calc">
+      <span class="time-calc-label">今回の飛行</span>
+      <div><span class="time-calc-value" id="timeDisplay">00:00</span><span class="time-calc-unit">h:mm</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-red">⚠️</div><span class="card-title">安全影響事項</span><span class="card-number">05</span></div>
+    <div class="safety-grid">
+      <div class="check-item" onclick="toggleCheck(this,'safety-note-area')"><div class="check-box"></div><span class="check-label">ヒヤリハット</span></div>
+      <div class="check-item" onclick="toggleCheck(this,'safety-note-area')"><div class="check-box"></div><span class="check-label">機体の異常動作</span></div>
+      <div class="check-item" onclick="toggleCheck(this,'safety-note-area')"><div class="check-box"></div><span class="check-label">飛行中断</span></div>
+      <div class="check-item" onclick="toggleCheck(this,'safety-note-area')"><div class="check-box"></div><span class="check-label">第三者への影響</span></div>
+      <div class="check-item" onclick="toggleCheck(this,'safety-note-area')"><div class="check-box"></div><span class="check-label">天候による制限</span></div>
+      <div class="check-item" onclick="toggleCheck(this,'safety-note-area')"><div class="check-box"></div><span class="check-label">その他の事象</span></div>
+    </div>
+    <div class="safety-note" id="safety-note-area">
+      <label>⚠ 詳細を記録</label>
+      <input type="text" id="safetyDetail" placeholder="発生した事象の詳細を入力してください">
+    </div>
+    <div class="field" style="margin-top:14px;">
+      <label>特記事項なし</label>
+      <div class="check-item" id="noIssueCheck" onclick="toggleNoIssue(this)" style="max-width:220px;">
+        <div class="check-box"></div><span class="check-label" style="color:var(--text-muted)">安全影響なし（問題なし）</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="submit-area">
+    <button class="btn btn-secondary" onclick="resetForm()">リセット</button>
+    <button class="btn btn-primary" id="save-btn" onclick="submitForm()">記録を保存する →</button>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot green" id="conn-dot"></div>
+    <span id="conn-status">Googleスプレッドシートに接続済み</span>
+  </div>
+</div>
+</div>
+
+<!-- 記録一覧ページ -->
+<div class="page" id="page-list">
+<div class="container">
+  <div class="header">
+    <div class="header-top">
+      <div class="logo"><div class="logo-dot"></div>FlightLog</div>
+      <div class="aircraft-badge" id="list-registration">-</div>
+    </div>
+    <h1 class="page-title">飛行記録<span>一覧</span></h1>
+    <p class="page-subtitle" id="list-subtitle">-</p>
+  </div>
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-value" id="stat-total">—</div><div class="stat-label">総飛行回数</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat-hours">—</div><div class="stat-label">総飛行時間</div></div>
+    <div class="stat-card"><div class="stat-value" id="stat-issues">—</div><div class="stat-label">事象記録</div></div>
+  </div>
+  <div class="list-controls">
+    <input class="search-box" type="text" id="search-box" placeholder="🔍 場所・概要で検索..." oninput="renderList()">
+  </div>
+  <div class="action-bar">
+    <button class="btn btn-secondary btn-sm" onclick="refreshList()">🔄 更新</button>
+    <button class="btn btn-secondary btn-sm" onclick="exportCSV()">⬇ CSV書き出し</button>
+  </div>
+  <div class="log-list" id="log-list">
+    <div class="empty-state"><div class="empty-icon">🔄</div><div class="empty-text">読み込み中...</div></div>
+  </div>
+</div>
+</div>
+
+<!-- 設定ページ -->
+<div class="page" id="page-settings">
+<div class="container">
+  <div class="header">
+    <div class="header-top">
+      <div class="logo"><div class="logo-dot"></div>FlightLog</div>
+    </div>
+    <h1 class="page-title">アプリ<span>設定</span></h1>
+    <p class="page-subtitle">個人情報・スプレッドシート連携</p>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-blue">👤</div><span class="card-title">操縦者情報</span></div>
+    <div class="field">
+      <label>操縦者氏名<span class="required">*</span></label>
+      <input type="text" id="settings-pilot" placeholder="例：田頭 達也">
+    </div>
+    <div class="field">
+      <label>機体名<span class="required">*</span></label>
+      <input type="text" id="settings-aircraft" placeholder="例：DJI Mini 5 Pro">
+    </div>
+    <div class="field">
+      <label>登録記号<span class="required">*</span></label>
+      <input type="text" id="settings-registration" placeholder="例：JU326336B7C6" style="font-family:'Share Tech Mono',monospace;">
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-icon icon-cyan">🔗</div><span class="card-title">スプレッドシート連携</span></div>
+    <div class="field">
+      <label>Apps Script URL<span class="required">*</span></label>
+      <input type="text" id="settings-url" placeholder="https://script.google.com/macros/s/..." style="font-family:'Share Tech Mono',monospace;font-size:12px;">
+    </div>
+    <div class="field">
+      <label>保存先フォルダ名（任意）</label>
+      <input type="text" id="settings-folder" placeholder="例：002_tagashiya/飛行記録（パス形式で入力可）">
+    </div>
+    <div id="settings-sheet-link-area" style="margin-top:12px;display:none;">
+      <a id="settings-sheet-link" href="#" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;">📊 スプレッドシートを開く</a>
+    </div>
+  </div>
+
+  <div class="submit-area">
+    <button class="btn btn-primary" id="settings-save-btn" onclick="saveSettings()">設定を保存する →</button>
+  </div>
+  <div style="margin-top:20px;padding-top:20px;border-top:1px solid var(--border);">
+    <button class="btn btn-danger" onclick="resetAllSettings()">すべての設定をリセット</button>
+  </div>
+</div>
+</div>
+
+<!-- モーダル -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">飛行記録詳細</span>
+      <button class="modal-close" onclick="closeModalDirect()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="modal-delete-btn">削除</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeModalDirect()">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const LS = {
+  PILOT:'fl_pilot', AIRCRAFT:'fl_aircraft', REGISTRATION:'fl_registration',
+  URL:'fl_script_url', SHEET:'fl_sheet_url', SETUP:'fl_setup_done', CACHE:'fl_cache'
+};
+
+let cachedLogs = [];
+
+function getProfile() {
+  return {
+    pilot: localStorage.getItem(LS.PILOT)||'',
+    aircraft: localStorage.getItem(LS.AIRCRAFT)||'',
+    registration: localStorage.getItem(LS.REGISTRATION)||'',
+    url: localStorage.getItem(LS.URL)||''
+  };
 }
 
-function doPost(e) {
-  let result;
-  try {
-    const params = JSON.parse(e.postData.contents);
-    switch (params.action) {
-      case 'setup':  result = setupSpreadsheet(params.folderName || ''); break;
-      case 'save':   result = saveLog(params.data);                      break;
-      case 'getAll': result = getAllLogs();                               break;
-      case 'delete': result = deleteLog(params.id);                      break;
-      default:       result = { success: false, message: '不明なアクションです' };
-    }
-  } catch(err) {
-    result = { success: false, message: err.message };
+function isSetup() { return !!localStorage.getItem(LS.SETUP); }
+
+// 初回設定チェック
+function checkFirstRun() {
+  if (!isSetup()) {
+    document.getElementById('setup-overlay').style.display = 'flex';
+  } else {
+    document.getElementById('setup-overlay').style.display = 'none';
+    applyProfile();
   }
-  return ContentService
-    .createTextOutput(JSON.stringify(result))
-    .setMimeType(ContentService.MimeType.JSON);
 }
 
-// ============================================================
-// パス形式（例：002_tagashiya/飛行記録）でフォルダを取得する
-// 存在しない階層は自動で作成する
-// ============================================================
-function getFolderByPath(folderPath) {
-  const parts = folderPath.split('/').map(p => p.trim()).filter(p => p !== '');
-  let current = DriveApp.getRootFolder();
-  for (const part of parts) {
-    const folders = current.getFoldersByName(part);
-    if (folders.hasNext()) {
-      current = folders.next();
+function applyProfile() {
+  const p = getProfile();
+  const initial = p.pilot ? p.pilot.charAt(0) : '-';
+  document.getElementById('pilot-avatar').textContent = initial;
+  document.getElementById('pilot-name-display').textContent = p.pilot || '-';
+  document.getElementById('pilot-license-display').textContent = p.aircraft + (p.registration ? ' / ' + p.registration : '');
+  document.getElementById('header-registration').textContent = p.registration || '-';
+  document.getElementById('header-subtitle').textContent = p.aircraft + ' — ' + p.pilot;
+  document.getElementById('list-registration').textContent = p.registration || '-';
+  document.getElementById('list-subtitle').textContent = p.aircraft + ' — ' + p.pilot;
+
+  const sheetUrl = localStorage.getItem(LS.SHEET);
+  if (sheetUrl) {
+    document.getElementById('settings-sheet-link-area').style.display = 'block';
+    document.getElementById('settings-sheet-link').href = sheetUrl;
+  }
+}
+
+async function runInitialSetup() {
+  const pilot = document.getElementById('setup-pilot').value.trim();
+  const aircraft = document.getElementById('setup-aircraft').value.trim();
+  const registration = document.getElementById('setup-registration').value.trim();
+  const url = document.getElementById('setup-url').value.trim();
+  const folder = document.getElementById('setup-folder').value.trim();
+
+  if (!pilot || !aircraft || !registration || !url) {
+    showToast('すべての必須項目を入力してください', true); return;
+  }
+  if (!url.startsWith('https://script.google.com')) {
+    showToast('正しいApps Script URLを入力してください', true); return;
+  }
+
+  const btn = document.getElementById('setup-start-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span>セットアップ中...';
+
+  localStorage.setItem(LS.PILOT, pilot);
+  localStorage.setItem(LS.AIRCRAFT, aircraft);
+  localStorage.setItem(LS.REGISTRATION, registration);
+  localStorage.setItem(LS.URL, url);
+
+  try {
+    const result = await callScript({ action: 'setup', folderName: folder });
+    if (result.success) {
+      localStorage.setItem(LS.SETUP, '1');
+      if (result.spreadsheetUrl) localStorage.setItem(LS.SHEET, result.spreadsheetUrl);
+      document.getElementById('setup-overlay').style.display = 'none';
+      applyProfile();
+      showToast('✓ セットアップ完了！');
     } else {
-      current = current.createFolder(part);
+      showToast('エラー: ' + result.message, true);
     }
+  } catch(e) {
+    showToast('接続できませんでした。URLを確認してください', true);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '設定してはじめる →';
   }
-  return current;
 }
 
-// ============================================================
-// スプレッドシートセットアップ
-// ============================================================
-function setupSpreadsheet(folderPath) {
+// 設定ページ
+function loadSettingsPage() {
+  const p = getProfile();
+  document.getElementById('settings-pilot').value = p.pilot;
+  document.getElementById('settings-aircraft').value = p.aircraft;
+  document.getElementById('settings-registration').value = p.registration;
+  document.getElementById('settings-url').value = p.url;
+}
+
+async function saveSettings() {
+  const pilot = document.getElementById('settings-pilot').value.trim();
+  const aircraft = document.getElementById('settings-aircraft').value.trim();
+  const registration = document.getElementById('settings-registration').value.trim();
+  const url = document.getElementById('settings-url').value.trim();
+  const folder = document.getElementById('settings-folder').value.trim();
+
+  if (!pilot || !aircraft || !registration || !url) {
+    showToast('必須項目をすべて入力してください', true); return;
+  }
+
+  const btn = document.getElementById('settings-save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span>保存中...';
+
+  localStorage.setItem(LS.PILOT, pilot);
+  localStorage.setItem(LS.AIRCRAFT, aircraft);
+  localStorage.setItem(LS.REGISTRATION, registration);
+  localStorage.setItem(LS.URL, url);
+
+  // URLが変わった場合は再セットアップ
   try {
-    const existing = PropertiesService.getUserProperties().getProperty('SPREADSHEET_ID');
-    if (existing) {
-      try {
-        const ss = SpreadsheetApp.openById(existing);
-        return { success: true, message: 'すでに設定済みです', spreadsheetId: existing, spreadsheetUrl: ss.getUrl() };
-      } catch(e) {
-        PropertiesService.getUserProperties().deleteProperty('SPREADSHEET_ID');
-      }
+    const result = await callScript({ action: 'setup', folderName: folder });
+    if (result.success) {
+      localStorage.setItem(LS.SETUP, '1');
+      if (result.spreadsheetUrl) localStorage.setItem(LS.SHEET, result.spreadsheetUrl);
     }
+  } catch(e) {}
 
-    const ss = SpreadsheetApp.create('FlightLog - 飛行記録');
-    const spreadsheetId = ss.getId();
-    const sheet = ss.getActiveSheet();
-    sheet.setName(SHEET_NAME);
-    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+  applyProfile();
+  showToast('✓ 設定を保存しました');
+  btn.disabled = false;
+  btn.innerHTML = '設定を保存する →';
+}
 
-    const headerRange = sheet.getRange(1, 1, 1, HEADERS.length);
-    headerRange.setBackground('#1a2235');
-    headerRange.setFontColor('#06b6d4');
-    headerRange.setFontWeight('bold');
+function resetAllSettings() {
+  if (!confirm('すべての設定をリセットしますか？\n（スプレッドシートのデータは削除されません）')) return;
+  Object.values(LS).forEach(k => localStorage.removeItem(k));
+  cachedLogs = [];
+  checkFirstRun();
+  showToast('設定をリセットしました');
+}
 
-    const widths = [180,110,80,100,130,130,200,200,200,100,200,200,110,160];
-    widths.forEach((w, i) => sheet.setColumnWidth(i + 1, w));
-    sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, HEADERS.length).createFilter();
+// タブ切り替え
+function switchTab(tab) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + tab).classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'list') refreshList();
+  if (tab === 'settings') loadSettingsPage();
+}
 
-    // パス形式でフォルダを指定できる
-    if (folderPath && folderPath.trim() !== '') {
-      const file = DriveApp.getFileById(spreadsheetId);
-      const targetFolder = getFolderByPath(folderPath.trim());
-      targetFolder.addFile(file);
-      DriveApp.getRootFolder().removeFile(file);
-    }
+// 入力フォーム
+function initDateTime() {
+  const now = new Date();
+  document.getElementById('flightDate').value = now.toISOString().split('T')[0];
+  document.getElementById('takeoffTime').value =
+    String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+}
 
-    PropertiesService.getUserProperties().setProperty('SPREADSHEET_ID', spreadsheetId);
-    return { success: true, message: 'セットアップ完了', spreadsheetId: spreadsheetId, spreadsheetUrl: ss.getUrl() };
+function updateTimeDisplay() {
+  const mins = parseInt(document.getElementById('flightMinutes').value) || 0;
+  document.getElementById('timeDisplay').textContent =
+    String(Math.floor(mins/60)).padStart(2,'0') + ':' + String(mins%60).padStart(2,'0');
+}
 
-  } catch(err) {
-    return { success: false, message: 'セットアップエラー: ' + err.message };
+function toggleLanding(cb) {
+  const lf = document.getElementById('landingLocation');
+  if (cb.checked) { lf.value = document.getElementById('takeoffLocation').value; lf.disabled=true; lf.style.opacity='0.4'; }
+  else { lf.disabled=false; lf.style.opacity='1'; }
+}
+document.getElementById('takeoffLocation').addEventListener('input', function() {
+  if (document.getElementById('sameLanding').checked) document.getElementById('landingLocation').value = this.value;
+});
+
+function toggleCheck(el, noteAreaId) {
+  el.classList.toggle('checked');
+  const anyChecked = document.querySelectorAll('.safety-grid .check-item.checked').length > 0;
+  document.getElementById(noteAreaId).classList.toggle('visible', anyChecked);
+  if (anyChecked) document.getElementById('noIssueCheck').classList.remove('checked');
+}
+function toggleNoIssue(el) {
+  el.classList.toggle('checked');
+  if (el.classList.contains('checked')) {
+    document.querySelectorAll('.safety-grid .check-item').forEach(i => i.classList.remove('checked'));
+    document.getElementById('safety-note-area').classList.remove('visible');
   }
 }
 
-// ============================================================
-// 飛行記録保存
-// ============================================================
-function saveLog(data) {
+function collectData() {
+  const p = getProfile();
+  return {
+    id: Date.now().toString(),
+    flightDate: document.getElementById('flightDate').value,
+    takeoffTime: document.getElementById('takeoffTime').value,
+    pilotName: p.pilot,
+    aircraft: p.aircraft,
+    registration: p.registration,
+    flightOverview: document.getElementById('flightOverview').value.trim(),
+    takeoffLocation: document.getElementById('takeoffLocation').value.trim(),
+    landingLocation: document.getElementById('landingLocation').value.trim(),
+    flightMinutes: parseInt(document.getElementById('flightMinutes').value) || 0,
+    safetyItems: [...document.querySelectorAll('.safety-grid .check-item.checked')].map(el => el.querySelector('.check-label').textContent),
+    safetyDetail: document.getElementById('safetyDetail').value.trim(),
+    noIssue: document.getElementById('noIssueCheck').classList.contains('checked'),
+    savedAt: new Date().toISOString()
+  };
+}
+
+async function submitForm() {
+  const d = collectData();
+  if (!d.flightDate || !d.takeoffTime || !d.flightOverview || !d.takeoffLocation || !d.flightMinutes) {
+    showToast('必須項目（*）を入力してください', true); return;
+  }
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span>保存中...';
   try {
-    const ss = getSpreadsheet();
-    if (!ss) return { success: false, message: '初期設定が完了していません' };
-    const sheet = ss.getSheetByName(SHEET_NAME);
-    if (!sheet) return { success: false, message: 'シートが見つかりません' };
-
-    sheet.appendRow([
-      data.id, data.flightDate, data.takeoffTime, data.pilotName,
-      data.aircraft, data.registration, data.flightOverview,
-      data.takeoffLocation, data.landingLocation, data.flightMinutes,
-      (data.safetyItems || []).join(' / '), data.safetyDetail || '',
-      data.noIssue ? '○' : '', data.savedAt
-    ]);
-
-    return { success: true, message: '保存しました', id: data.id };
-  } catch(err) {
-    return { success: false, message: '保存エラー: ' + err.message };
-  }
+    const result = await callScript({ action: 'save', data: d });
+    if (result.success) { showToast('✓ 飛行記録を保存しました'); resetForm(); updateNavCount(); }
+    else { showToast('保存エラー: ' + result.message, true); }
+  } catch(e) { showToast('通信エラー。接続を確認してください', true); }
+  finally { btn.disabled=false; btn.innerHTML='記録を保存する →'; }
 }
 
-// ============================================================
-// 全記録取得
-// ============================================================
-function getAllLogs() {
+function resetForm() {
+  ['flightOverview','takeoffLocation','landingLocation','safetyDetail'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('flightMinutes').value='';
+  document.querySelectorAll('.check-item').forEach(el => el.classList.remove('checked'));
+  document.getElementById('safety-note-area').classList.remove('visible');
+  document.getElementById('landingLocation').disabled=false;
+  document.getElementById('landingLocation').style.opacity='1';
+  document.getElementById('sameLanding').checked=false;
+  updateTimeDisplay();
+  initDateTime();
+}
+
+// 一覧
+async function refreshList() {
+  const container = document.getElementById('log-list');
+  container.innerHTML = '<div class="empty-state"><div class="empty-icon">🔄</div><div class="empty-text">読み込み中...</div></div>';
   try {
-    const ss = getSpreadsheet();
-    if (!ss) return { success: false, message: '初期設定が完了していません' };
-    const sheet = ss.getSheetByName(SHEET_NAME);
-    if (!sheet) return { success: false, message: 'シートが見つかりません' };
-
-    const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return { success: true, logs: [] };
-
-    const data = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
-    const logs = data
-      .filter(row => row[0] !== '')
-      .map(row => ({
-        id: row[0], flightDate: row[1], takeoffTime: row[2],
-        pilotName: row[3], aircraft: row[4], registration: row[5],
-        flightOverview: row[6], takeoffLocation: row[7], landingLocation: row[8],
-        flightMinutes: row[9],
-        safetyItems: row[10] ? row[10].split(' / ').filter(s => s) : [],
-        safetyDetail: row[11], noIssue: row[12] === '○', savedAt: row[13]
-      }));
-
-    logs.sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
-    return { success: true, logs: logs };
-  } catch(err) {
-    return { success: false, message: '取得エラー: ' + err.message };
+    const result = await callScript({ action: 'getAll' });
+    if (result.success) {
+      cachedLogs = result.logs;
+      localStorage.setItem(LS.CACHE, JSON.stringify(cachedLogs));
+      renderList(); updateNavCount();
+    } else { showToast('取得エラー: ' + result.message, true); }
+  } catch(e) {
+    const cache = localStorage.getItem(LS.CACHE);
+    if (cache) { cachedLogs = JSON.parse(cache); renderList(); showToast('オフライン：キャッシュを表示しています'); }
+    else container.innerHTML = '<div class="empty-state"><div class="empty-icon">📡</div><div class="empty-text">接続できませんでした</div></div>';
   }
 }
 
-// ============================================================
-// 記録削除
-// ============================================================
-function deleteLog(id) {
+function renderList() {
+  const q = (document.getElementById('search-box').value||'').toLowerCase();
+  const filtered = q ? cachedLogs.filter(l =>
+    (l.flightOverview||'').toLowerCase().includes(q)||(l.takeoffLocation||'').toLowerCase().includes(q)||(l.landingLocation||'').toLowerCase().includes(q)
+  ) : cachedLogs;
+  const totalMins = cachedLogs.reduce((s,l)=>s+(l.flightMinutes||0),0);
+  document.getElementById('stat-total').textContent = cachedLogs.length;
+  document.getElementById('stat-hours').textContent = String(Math.floor(totalMins/60)).padStart(2,'0')+':'+String(totalMins%60).padStart(2,'0');
+  document.getElementById('stat-issues').textContent = cachedLogs.filter(l=>l.safetyItems&&l.safetyItems.length>0).length;
+  const container = document.getElementById('log-list');
+  if (!filtered.length) {
+    container.innerHTML = cachedLogs.length===0
+      ? '<div class="empty-state"><div class="empty-icon">🛸</div><div class="empty-text">飛行記録がありません</div><div class="empty-sub">入力タブから最初の記録を追加してください</div></div>'
+      : '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">検索結果が見つかりません</div></div>';
+    return;
+  }
+  container.innerHTML = filtered.map(l => {
+    const hasIssue = l.safetyItems&&l.safetyItems.length>0;
+    const h=String(Math.floor((l.flightMinutes||0)/60)).padStart(2,'0');
+    const m=String((l.flightMinutes||0)%60).padStart(2,'0');
+    const tags = hasIssue ? l.safetyItems.map(s=>'<span class="tag tag-issue">'+esc(s)+'</span>').join('') : '<span class="tag tag-ok">安全影響なし</span>';
+    return '<div class="log-item'+(hasIssue?' has-issue':'')+'" onclick="openModal(\''+l.id+'\')">'+
+      '<div class="log-item-top"><span class="log-date">'+esc(l.flightDate||'')+'</span><span class="log-time">'+esc(l.takeoffTime||'')+'</span><span class="log-duration">'+h+':'+m+' h</span></div>'+
+      '<div class="log-overview">'+esc(l.flightOverview||'')+'</div>'+
+      '<div class="log-location">📍 '+esc(l.takeoffLocation||'')+'</div>'+
+      '<div class="log-tags">'+tags+'</div></div>';
+  }).join('');
+}
+
+function updateNavCount() { document.getElementById('nav-count').textContent = cachedLogs.length; }
+
+// モーダル
+function openModal(id) {
+  const l = cachedLogs.find(x=>String(x.id)===String(id));
+  if (!l) return;
+  const h=String(Math.floor((l.flightMinutes||0)/60)).padStart(2,'0');
+  const m=String((l.flightMinutes||0)%60).padStart(2,'0');
+  const hasIssue=l.safetyItems&&l.safetyItems.length>0;
+  document.getElementById('modal-title').textContent=(l.flightDate||'')+' — '+(l.flightOverview||'').substring(0,20);
+  document.getElementById('modal-body').innerHTML=[
+    row('飛行年月日',l.flightDate),row('離陸時刻',l.takeoffTime),
+    row('操縦者',l.pilotName),row('機体',l.aircraft+' ('+l.registration+')'),
+    row('飛行概要',l.flightOverview),row('離陸場所',l.takeoffLocation),
+    row('着陸場所',l.landingLocation||'—'),row('飛行時間',l.flightMinutes+'分 ('+h+':'+m+')'),
+    row('安全影響事項',hasIssue?(l.safetyItems.join('、')+(l.safetyDetail?'<br><span style="color:var(--danger)">詳細: '+esc(l.safetyDetail)+'</span>':'')):'<span style="color:var(--accent3)">安全影響なし</span>'),
+    row('保存日時',new Date(l.savedAt).toLocaleString('ja-JP')),
+  ].join('');
+  document.getElementById('modal-delete-btn').onclick=()=>deleteLog(id);
+  document.getElementById('modal-overlay').classList.add('show');
+}
+function row(key,val){return '<div class="modal-row"><span class="modal-key">'+key+'</span><span class="modal-val">'+val+'</span></div>';}
+function closeModal(e){if(e.target===document.getElementById('modal-overlay'))closeModalDirect();}
+function closeModalDirect(){document.getElementById('modal-overlay').classList.remove('show');}
+
+async function deleteLog(id) {
+  if (!confirm('この飛行記録を削除しますか？')) return;
   try {
-    const ss = getSpreadsheet();
-    if (!ss) return { success: false, message: '初期設定が完了していません' };
-    const sheet = ss.getSheetByName(SHEET_NAME);
-    if (!sheet) return { success: false, message: 'シートが見つかりません' };
-
-    const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return { success: false, message: '記録が見つかりません' };
-
-    const data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    for (let i = 0; i < data.length; i++) {
-      if (String(data[i][0]) === String(id)) {
-        sheet.deleteRow(i + 2);
-        return { success: true, message: '削除しました' };
-      }
-    }
-    return { success: false, message: '該当する記録が見つかりません' };
-  } catch(err) {
-    return { success: false, message: '削除エラー: ' + err.message };
-  }
+    const result = await callScript({action:'delete',id:id});
+    if (result.success) { showToast('記録を削除しました'); closeModalDirect(); await refreshList(); }
+    else { showToast('削除エラー: '+result.message,true); }
+  } catch(e) { showToast('通信エラー',true); }
 }
 
-// ============================================================
-// スプレッドシート取得
-// ============================================================
-function getSpreadsheet() {
-  const id = PropertiesService.getUserProperties().getProperty('SPREADSHEET_ID');
-  if (!id) return null;
-  try { return SpreadsheetApp.openById(id); } catch(e) { return null; }
+// CSV
+function exportCSV() {
+  if (!cachedLogs.length) { showToast('書き出す記録がありません',true); return; }
+  const headers=['飛行年月日','離陸時刻','操縦者氏名','機体','登録記号','飛行概要','離陸場所','着陸場所','飛行時間(分)','安全影響事項','詳細','保存日時'];
+  const rows=cachedLogs.map(l=>[
+    l.flightDate,l.takeoffTime,l.pilotName,l.aircraft,l.registration,
+    l.flightOverview,l.takeoffLocation,l.landingLocation,l.flightMinutes,
+    (l.safetyItems||[]).join(' / ')||(l.noIssue?'安全影響なし':''),
+    l.safetyDetail||'',new Date(l.savedAt).toLocaleString('ja-JP')
+  ].map(v=>'"'+String(v||'').replace(/"/g,'""')+'"'));
+  const csv='\uFEFF'+[headers,...rows].map(r=>r.join(',')).join('\r\n');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.download='flight_log_'+new Date().toISOString().split('T')[0]+'.csv';
+  a.click();
+  showToast('✓ CSVを書き出しました');
 }
+
+// API
+async function callScript(payload) {
+  const url = localStorage.getItem(LS.URL);
+  if (!url) throw new Error('URLが設定されていません');
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload) });
+  if (!res.ok) throw new Error('HTTP '+res.status);
+  return await res.json();
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function showToast(msg,isError) {
+  const t=document.getElementById('toast');
+  t.textContent=msg;
+  t.className='toast'+(isError?' error':'');
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// 初期化
+initDateTime();
+checkFirstRun();
+const cache = localStorage.getItem(LS.CACHE);
+if (cache) { cachedLogs=JSON.parse(cache); updateNavCount(); }
+</script>
+</body>
+</html>
