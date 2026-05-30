@@ -522,19 +522,26 @@ async function saveSettings() {
   btn.disabled = true;
   btn.innerHTML = '<span class="loading"></span>保存中...';
 
+  const previousUrl = localStorage.getItem(LS.URL);
+  const previousPilot = localStorage.getItem(LS.PILOT);
   localStorage.setItem(LS.PILOT, pilot);
   localStorage.setItem(LS.AIRCRAFT, aircraft);
   localStorage.setItem(LS.REGISTRATION, registration);
   localStorage.setItem(LS.URL, url);
 
-  // URLが変わった場合は再セットアップ
-  try {
-    const result = await callScript({ action: 'setup', folderName: folder });
-    if (result.success) {
-      localStorage.setItem(LS.SETUP, '1');
-      if (result.spreadsheetUrl) localStorage.setItem(LS.SHEET, result.spreadsheetUrl);
-    }
-  } catch(e) {}
+  // URLまたは操縦者氏名が変わった場合は新しいスプレッドシートを作成
+  // 機体名・登録記号の変更では新規作成しない
+  if (url !== previousUrl || pilot !== previousPilot) {
+    localStorage.removeItem(LS.SHEET);
+    localStorage.removeItem(LS.SETUP);
+    try {
+      const result = await callScript({ action: 'reset', folderName: folder });
+      if (result.success) {
+        localStorage.setItem(LS.SETUP, '1');
+        if (result.spreadsheetUrl) localStorage.setItem(LS.SHEET, result.spreadsheetUrl);
+      }
+    } catch(e) {}
+  }
 
   applyProfile();
   showToast('✓ 設定を保存しました');
