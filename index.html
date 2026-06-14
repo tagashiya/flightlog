@@ -13,6 +13,18 @@
   --danger:#ef4444;--warn:#f59e0b;--text:#e2e8f0;--text-muted:#64748b;
   --text-dim:#94a3b8;--glow:rgba(59,130,246,0.15);
 }
+body.light-mode {
+  --bg:#f0f4f8;--surface:#ffffff;--surface2:#e8eef5;--border:#c5d5e8;
+  --border-glow:#2563eb;--accent:#2563eb;--accent2:#0891b2;--accent3:#059669;
+  --danger:#dc2626;--warn:#d97706;--text:#1e293b;--text-muted:#64748b;
+  --text-dim:#475569;--glow:rgba(37,99,235,0.1);
+}
+body.light-mode::before{background-image:linear-gradient(rgba(37,99,235,0.06) 1px,transparent 1px),linear-gradient(90deg,rgba(37,99,235,0.06) 1px,transparent 1px);}
+body.light-mode::after{background:radial-gradient(ellipse,rgba(37,99,235,0.05) 0%,transparent 70%);}
+body.light-mode .nav-tabs{background:rgba(240,244,248,0.95);}
+body.light-mode input[type="date"],body.light-mode input[type="time"]{color-scheme:light;}
+.theme-btn{background:transparent;border:1px solid var(--border);border-radius:8px;padding:6px 10px;cursor:pointer;font-size:16px;color:var(--text-muted);transition:all 0.2s;margin-left:auto;}
+.theme-btn:hover{border-color:var(--accent);color:var(--accent);}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--text);font-family:'Noto Sans JP',sans-serif;font-weight:300;min-height:100vh;overflow-x:hidden;}
 body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(37,99,235,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(37,99,235,0.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
@@ -227,6 +239,7 @@ textarea{resize:vertical;min-height:90px;line-height:1.6;}
   <div class="nav-tab active" id="tab-input" onclick="switchTab('input')">✏️ 入力</div>
   <div class="nav-tab" id="tab-list" onclick="switchTab('list')">📋 記録一覧 <span class="nav-count" id="nav-count">0</span></div>
   <div class="nav-tab" id="tab-settings" onclick="switchTab('settings')">⚙️ 設定</div>
+  <button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="ライト/ダークモード切替">🌙</button>
 </div>
 
 <!-- 入力ページ -->
@@ -530,7 +543,7 @@ async function runInitialSetup() {
 // URLが入力されたらプロフィールを自動復元する
 async function tryRestoreProfile() {
   const url = document.getElementById('setup-url').value.trim();
-  if (!url.startsWith('https://script.google.com')) {
+  if (!url.includes('script.google.com')) {
     showToast('正しいURLを入力してください', true); return;
   }
 
@@ -845,7 +858,23 @@ function showToast(msg,isError) {
   setTimeout(()=>t.classList.remove('show'), 3000);
 }
 
+// テーマ切り替え
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light-mode');
+  document.getElementById('theme-btn').textContent = isLight ? '🌙' : '☀️';
+  localStorage.setItem('fl_theme', isLight ? 'light' : 'dark');
+}
+
+function initTheme() {
+  const theme = localStorage.getItem('fl_theme');
+  if (theme === 'light') {
+    document.body.classList.add('light-mode');
+    document.getElementById('theme-btn').textContent = '🌙';
+  }
+}
+
 // 初期化
+initTheme();
 initDateTime();
 checkFirstRun();
 const cache = localStorage.getItem(LS.CACHE);
