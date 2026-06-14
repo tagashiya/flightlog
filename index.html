@@ -530,18 +530,22 @@ async function runInitialSetup() {
 // URLが入力されたらプロフィールを自動復元する
 async function tryRestoreProfile() {
   const url = document.getElementById('setup-url').value.trim();
-  if (!url.startsWith('https://script.google.com')) return;
+  if (!url.startsWith('https://script.google.com')) {
+    showToast('正しいURLを入力してください', true); return;
+  }
 
-  localStorage.setItem(LS.URL, url);
   try {
-    const result = await callScript({ action: 'getProfile' });
+    const result = await callScriptWithUrl(url, { action: 'getProfile' });
     if (result.success && result.profile && result.profile.pilot) {
       const p = result.profile;
       document.getElementById('setup-pilot').value = p.pilot;
       document.getElementById('setup-aircraft').value = p.aircraft;
       document.getElementById('setup-registration').value = p.registration;
       document.getElementById('setup-folder').value = p.folder;
+      localStorage.setItem(LS.URL, url);
       showToast('✓ 設定情報を復元しました');
+    } else {
+      showToast('設定情報が見つかりませんでした', true);
     }
   } catch(e) {
     showToast('復元エラー: ' + e.message, true);
@@ -813,6 +817,13 @@ function exportCSV() {
   a.download='flight_log_'+new Date().toISOString().split('T')[0]+'.csv';
   a.click();
   showToast('✓ CSVを書き出しました');
+}
+
+// API（URLを直接指定する版）
+async function callScriptWithUrl(url, payload) {
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload) });
+  if (!res.ok) throw new Error('HTTP '+res.status);
+  return await res.json();
 }
 
 // API
