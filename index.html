@@ -186,7 +186,7 @@ textarea{resize:vertical;min-height:90px;line-height:1.6;}
     </div>
     <div class="field">
       <label>Apps Script URL<span class="required">*</span></label>
-      <input type="text" id="setup-url" placeholder="https://script.google.com/macros/s/..." style="font-family:'Share Tech Mono',monospace;font-size:12px;">
+      <input type="text" id="setup-url" placeholder="https://script.google.com/macros/s/..." style="font-family:'Share Tech Mono',monospace;font-size:12px;" onblur="tryRestoreProfile()">
       <div class="setup-hint">Google Apps Scriptをデプロイして発行されたURLを入力してください</div>
     </div>
     <div class="field">
@@ -508,6 +508,10 @@ async function runInitialSetup() {
     if (result.success) {
       localStorage.setItem(LS.SETUP, '1');
       if (result.spreadsheetUrl) localStorage.setItem(LS.SHEET, result.spreadsheetUrl);
+
+      // プロフィールをApps Script側にも保存（復元用）
+      await callScript({ action: 'saveProfile', profile: { pilot, aircraft, registration, folder } });
+
       document.getElementById('setup-overlay').style.display = 'none';
       applyProfile();
       showToast('✓ セットアップ完了！');
@@ -520,6 +524,25 @@ async function runInitialSetup() {
     btn.disabled = false;
     btn.innerHTML = '設定してはじめる →';
   }
+}
+
+// URLが入力されたらプロフィールを自動復元する
+async function tryRestoreProfile() {
+  const url = document.getElementById('setup-url').value.trim();
+  if (!url.startsWith('https://script.google.com')) return;
+
+  localStorage.setItem(LS.URL, url);
+  try {
+    const result = await callScript({ action: 'getProfile' });
+    if (result.success && result.profile && result.profile.pilot) {
+      const p = result.profile;
+      document.getElementById('setup-pilot').value = p.pilot;
+      document.getElementById('setup-aircraft').value = p.aircraft;
+      document.getElementById('setup-registration').value = p.registration;
+      document.getElementById('setup-folder').value = p.folder;
+      showToast('✓ 設定情報を復元しました');
+    }
+  } catch(e) {}
 }
 
 // 設定ページ
@@ -566,6 +589,11 @@ async function saveSettings() {
       }
     } catch(e) {}
   }
+
+  // プロフィールをApps Script側にも保存（復元用）
+  try {
+    await callScript({ action: 'saveProfile', profile: { pilot, aircraft, registration, folder } });
+  } catch(e) {}
 
   applyProfile();
   showToast('✓ 設定を保存しました');
