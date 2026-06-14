@@ -186,7 +186,8 @@ textarea{resize:vertical;min-height:90px;line-height:1.6;}
     </div>
     <div class="field">
       <label>Apps Script URL<span class="required">*</span></label>
-      <input type="text" id="setup-url" placeholder="https://script.google.com/macros/s/..." style="font-family:'Share Tech Mono',monospace;font-size:12px;" onblur="tryRestoreProfile()">
+      <input type="text" id="setup-url" placeholder="https://script.google.com/macros/s/..." style="font-family:'Share Tech Mono',monospace;font-size:12px;">
+      <button onclick="tryRestoreProfile()" class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%;">URLから設定を復元する</button>
       <div class="setup-hint">Google Apps Scriptをデプロイして発行されたURLを入力してください</div>
     </div>
     <div class="field">
