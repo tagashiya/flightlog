@@ -541,8 +541,12 @@ async function tryRestoreProfile() {
       document.getElementById('setup-registration').value = p.registration;
       document.getElementById('setup-folder').value = p.folder;
       showToast('✓ 設定情報を復元しました');
+    } else {
+      showToast('URLを確認中... ' + JSON.stringify(result), true);
     }
-  } catch(e) {}
+  } catch(e) {
+    showToast('復元エラー: ' + e.message, true);
+  }
 }
 
 // 設定ページ
